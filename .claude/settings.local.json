@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__zread__get_repo_structure",
+      "mcp__zread__search_doc",
+      "WebSearch",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:docs.langchain.com)",
+      "WebFetch(domain:neo4j.com)",
+      "WebFetch(domain:www.pypi.org)",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(python3:*)",
+      "Bash(pip install:*)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(docker compose up:*)",
+      "Bash(open:*)",
+      "Bash(npx tsc:*)",
+      "Bash(python -m ruff check:*)",
+      "Bash(node -e:*)",
+      "Bash(npx vite build:*)",
+      "Bash(curl:*)",
+      "Bash(TASK_ID=\"0818b31b-dc24-43d7-beee-ccb524abc505\")"
+    ]
+  }
+}
