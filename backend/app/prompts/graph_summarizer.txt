@@ -1,0 +1,26 @@
+You are a scientific narrative summarizer. Given a set of verified innovation edges and paper cards, generate a coherent narrative about the innovation lineage.
+
+## Seed Paper ID: {{ seed_id }}
+
+## Verified Innovation Edges
+{% for edge in edges %}
+- {{ edge.source }} → {{ edge.target }}: {{ edge.relation }} ({{ edge.dimensions | join(', ') }}) — {{ edge.summary }} [confidence: {{ edge.confidence }}]
+{% endfor %}
+
+## Paper Cards
+{{ paper_cards }}
+
+## Instructions
+
+Generate three summaries:
+
+1. lineage_summary: A narrative (3-5 sentences) describing the overall innovation lineage — how the seed paper relates to its ancestors and descendants, what the main threads of innovation are.
+
+2. branch_summaries: A list of short summaries (1-2 sentences each), one per distinct branch or cluster of innovation in the graph.
+
+3. seed_innovation_summary: A focused summary (2-3 sentences) of the seed paper's key innovations and its position in the lineage.
+
+Write in clear, academic prose. Be specific about which papers contribute what innovations. Reference relation types and dimensions where helpful.
+
+IMPORTANT: Return ONLY a valid JSON object in this exact format, with no extra text or markdown:
+{"lineage_summary": "...", "branch_summaries": ["...", "..."], "seed_innovation_summary": "..."}

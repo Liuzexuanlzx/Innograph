@@ -1,0 +1,18 @@
+{
+  "data": [
+    {
+      "citingPaper": {
+        "paperId": "def456",
+        "externalIds": {"DOI": "10.1234/example"},
+        "title": "BERT: Pre-training of Deep Bidirectional Transformers",
+        "abstract": "We introduce BERT, a new language representation model.",
+        "authors": [{"name": "Jacob Devlin"}],
+        "year": 2019,
+        "venue": "NAACL",
+        "citationCount": 50000,
+        "referenceCount": 30,
+        "fieldsOfStudy": ["Computer Science"]
+      }
+    }
+  ]
+}
