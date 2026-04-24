@@ -35,7 +35,7 @@ class LLMProvider:
         self._openai = None
 
         # Only use DeepSeek V4
-        model_name = "deepseek-v4-pro"
+        model_name = "deepseek-v4-flash"
         kwargs = {
             "model": model_name,
             "api_key": settings.openai_api_key,
@@ -45,7 +45,7 @@ class LLMProvider:
             kwargs["base_url"] = settings.openai_api_base
         else:
             # Default to DeepSeek API
-            kwargs["base_url"] = "https://api.deepseek.com/v1"
+            kwargs["base_url"] = "https://api.deepseek.com"
         
         self._openai = ChatOpenAI(**kwargs)
         logger.info(f"LLM backend: DeepSeek with model {model_name}")
