@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "relation_extractor.txt"
 
-MAX_ALL_PAIRS = 30
+MAX_ALL_PAIRS = 50
 
 
 class RelationOutput(BaseModel):
@@ -41,13 +41,13 @@ def _compute_similarity(card_a, card_b) -> float:
         tokens_a |= _tokenize(field)
     for item in card_a.key_modules + card_a.claimed_gains:
         tokens_a |= _tokenize(item)
-    
+
     tokens_b = set()
     for field in [card_b.problem, card_b.method_summary, card_b.short_label]:
         tokens_b |= _tokenize(field)
     for item in card_b.key_modules + card_b.claimed_gains:
         tokens_b |= _tokenize(item)
-    
+
     if not tokens_a or not tokens_b:
         return 0.0
     return len(tokens_a & tokens_b) / max(len(min(tokens_a, tokens_b, key=len)), 1)
@@ -65,7 +65,7 @@ async def relation_extractor(state: InnoGraphState) -> dict:
     paper_map: dict[str, Paper] = {}
     year_map: dict[str, int] = {}
     cite_map: dict[str, int] = {}
-    
+
     for p in raw_papers:
         pid = p.openalex_id or p.s2_id or ""
         if pid:
@@ -86,7 +86,7 @@ async def relation_extractor(state: InnoGraphState) -> dict:
     seen_pairs: set[tuple[str, str]] = set()
 
     pairs: list[tuple[str, str]] = []
-    
+
     for oid in other_ids:
         src, tgt = _get_ordered_pair(seed_id, oid)
         pair = (src, tgt)
@@ -94,8 +94,8 @@ async def relation_extractor(state: InnoGraphState) -> dict:
             seen_pairs.add(pair)
             pairs.append(pair)
 
-    high_cite_ids = sorted(other_ids, key=lambda x: cite_map.get(x, 0), reverse=True)[:15]
-    
+    high_cite_ids = sorted(other_ids, key=lambda x: cite_map.get(x, 0), reverse=True)[:20]
+
     candidate_pairs = []
     for i, id_a in enumerate(high_cite_ids):
         for id_b in high_cite_ids[i + 1:]:
@@ -110,10 +110,10 @@ async def relation_extractor(state: InnoGraphState) -> dict:
                     similarity = _compute_similarity(card_a, card_b)
                     if similarity > 0.05:
                         candidate_pairs.append((similarity, pair))
-    
+
     candidate_pairs.sort(key=lambda x: -x[0])
     sampled_pairs = [p for _, p in candidate_pairs[:MAX_ALL_PAIRS]]
-    
+
     for pair in sampled_pairs:
         if pair not in seen_pairs:
             seen_pairs.add(pair)

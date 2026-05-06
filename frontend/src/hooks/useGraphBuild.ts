@@ -45,41 +45,34 @@ export function useGraphBuild() {
   const startBuild = useCallback(async (query: string) => {
     stopPolling();
     try {
-      const { task_id } = await buildGraph({ query, max_papers: 50, depth: 2 });
+      const { task_id } = await buildGraph({ query, max_papers: 40, depth: 2 });
       setTask(task_id);
 
       pollingRef.current = setInterval(async () => {
         if (inFlightRef.current) {
           return;
         }
-
         inFlightRef.current = true;
         try {
-          const result = await getTaskStatus(task_id);
-          updateStatus(result.status, result.progress, result.error);
+          const status = await getTaskStatus(task_id);
+          updateStatus(status);
 
-          if (result.status === 'SUCCESS') {
+          if (status === 'SUCCESS') {
             stopPolling();
-            try {
-              const snapshot = await getTaskSnapshot(task_id);
-              setSnapshot(snapshot);
-            } catch (error) {
-              updateStatus('FAILED', '', `Snapshot fetch failed: ${getErrorMessage(error)}`);
-            }
-          } else if (result.status === 'FAILED') {
+            const snapshot = await getTaskSnapshot(task_id);
+            setSnapshot(snapshot);
+          } else if (status === 'FAILURE') {
             stopPolling();
           }
-        } catch (error) {
-          updateStatus('FAILED', '', `Polling error: ${getErrorMessage(error)}`);
-          stopPolling();
+        } catch {
         } finally {
           inFlightRef.current = false;
         }
       }, 2000);
     } catch (error) {
-      updateStatus('FAILED', '', `Failed to start build: ${getErrorMessage(error)}`);
+      alert(getErrorMessage(error));
     }
-  }, [setTask, updateStatus, setSnapshot, stopPolling]);
+  }, [stopPolling, setTask, updateStatus, setSnapshot]);
 
   return { startBuild, stopPolling };
 }

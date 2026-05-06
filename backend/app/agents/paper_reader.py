@@ -28,25 +28,8 @@ class PaperCardOutput(BaseModel):
 
 
 STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "by",
-    "for",
-    "from",
-    "in",
-    "into",
-    "is",
-    "of",
-    "on",
-    "or",
-    "the",
-    "to",
-    "towards",
-    "with",
+    "a", "an", "and", "are", "as", "at", "by", "for", "from",
+    "in", "into", "is", "of", "on", "or", "the", "to", "towards", "with",
 }
 
 
@@ -116,18 +99,35 @@ async def paper_reader(state: InnoGraphState) -> dict:
     cards = []
 
     async def _read_one(paper) -> PaperCard | None:
-        if not paper.abstract:
-            logger.debug("Skipping paper without abstract: %s", paper.title)
-            return None
-
         paper_id = paper.openalex_id or paper.s2_id or ""
+
         if paper_id:
             cached = await cache.get_paper_card(paper_id)
             if cached:
                 logger.debug("Using cached paper card for %s", paper_id)
                 return PaperCard(**cached)
 
-        prompt = template.render(title=paper.title, abstract=paper.abstract)
+        title = paper.title or ""
+        abstract = paper.abstract or ""
+
+        if not abstract:
+            short_label = infer_short_label_from_title(title)
+            card = PaperCard(
+                paper_id=paper_id,
+                short_label=short_label,
+                problem="[No abstract available]",
+                method_summary=f"Title: {title[:100]}..." if len(title) > 100 else f"Title: {title}",
+                key_modules=[],
+                claimed_gains=[],
+                limitations=[],
+                datasets=[],
+                baselines=[],
+            )
+            if paper_id:
+                await cache.set_paper_card(paper_id, card.model_dump())
+            return card
+
+        prompt = template.render(title=title, abstract=abstract)
         try:
             result = await llm.complete(
                 [{"role": "user", "content": prompt}],
@@ -135,7 +135,7 @@ async def paper_reader(state: InnoGraphState) -> dict:
             )
             card = PaperCard(
                 paper_id=paper_id,
-                short_label=resolve_short_label(paper.title, result.short_label),
+                short_label=resolve_short_label(title, result.short_label),
                 problem=result.problem,
                 method_summary=result.method_summary,
                 key_modules=result.key_modules,
@@ -148,8 +148,19 @@ async def paper_reader(state: InnoGraphState) -> dict:
                 await cache.set_paper_card(paper_id, card.model_dump())
             return card
         except Exception as e:
-            logger.warning("Failed to read paper %s: %s", paper.title, e)
-            return None
+            logger.warning("Failed to read paper %s: %s", title, e)
+            short_label = infer_short_label_from_title(title)
+            return PaperCard(
+                paper_id=paper_id,
+                short_label=short_label,
+                problem="[Extraction failed]",
+                method_summary=title,
+                key_modules=[],
+                claimed_gains=[],
+                limitations=[],
+                datasets=[],
+                baselines=[],
+            )
 
     results = await asyncio.gather(*[_read_one(p) for p in raw_papers])
     cards = [c for c in results if c is not None]

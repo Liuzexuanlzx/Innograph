@@ -19,7 +19,7 @@ celery_app.conf.update(
 
 
 @celery_app.task(bind=True, name="innograph.build_graph")
-def build_innovation_graph(self, query: str, depth: int = 2, max_papers: int = 30, min_confidence: float = 0.7):
+def build_innovation_graph(self, query: str, depth: int = 2, max_papers: int = 40, min_confidence: float = 0.7):
     """Celery task that runs the LangGraph workflow."""
     from app.agents.workflow import compile_workflow
 

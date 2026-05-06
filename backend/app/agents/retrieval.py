@@ -7,9 +7,7 @@ from app.services.semantic_scholar import SemanticScholarClient
 
 logger = logging.getLogger(__name__)
 
-# How many papers to fetch per source per direction (refs / cites).
-# More candidates → better quality after citation-count ranking.
-_SOURCE_LIMIT = 50
+_SOURCE_LIMIT = 80
 
 
 async def retrieval(state: InnoGraphState) -> dict:
@@ -60,7 +58,6 @@ async def retrieval(state: InnoGraphState) -> dict:
             return empty_value
 
     try:
-        # ── Phase 1: concurrently fetch OpenAlex + S2 paper match ─────────────
         oa_refs_coro   = _fetch("OpenAlex references",    oa.get_references(seed_id, limit=_SOURCE_LIMIT),   [])
         oa_cites_coro  = _fetch("OpenAlex citations",     oa.get_citations(seed_id, limit=_SOURCE_LIMIT),    [])
         oa_related_coro = _fetch("OpenAlex related works", oa.get_related_works(seed_id),                       [])
@@ -74,10 +71,9 @@ async def retrieval(state: InnoGraphState) -> dict:
         _add(oa_cites)
         _add(oa_related)
 
-        # ── Phase 2: concurrently fetch S2 refs / cites / recs ────────────────
         if s2_match and s2_match.s2_id:
             s2_id = s2_match.s2_id
-            rec_limit = min(20, max_papers)
+            rec_limit = min(30, max_papers)
 
             s2_refs_list, s2_cites_list, s2_recs_list = await asyncio.gather(
                 _fetch("Semantic Scholar references",      s2.get_references(s2_id, limit=_SOURCE_LIMIT),        []),
@@ -92,7 +88,6 @@ async def retrieval(state: InnoGraphState) -> dict:
         await oa.close()
         await s2.close()
 
-    # ── Rank by citation count (desc) and keep top max_papers ─────────────────
     papers.sort(key=lambda p: p.citation_count or 0, reverse=True)
     papers = papers[:max_papers]
 
