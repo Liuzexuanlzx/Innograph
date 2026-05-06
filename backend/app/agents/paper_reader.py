@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.state import InnoGraphState
 from app.models.paper import PaperCard
+from app.services.cache import CacheService
 from app.services.llm_provider import LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -110,22 +111,30 @@ async def paper_reader(state: InnoGraphState) -> dict:
         return {"errors": ["No papers to read"]}
 
     llm = LLMProvider()
+    cache = CacheService()
     template = Template(PROMPT_PATH.read_text())
     cards = []
 
     async def _read_one(paper) -> PaperCard | None:
         if not paper.abstract:
-            # Skip papers without abstract — empty cards degrade relation extraction quality
             logger.debug("Skipping paper without abstract: %s", paper.title)
             return None
+
+        paper_id = paper.openalex_id or paper.s2_id or ""
+        if paper_id:
+            cached = await cache.get_paper_card(paper_id)
+            if cached:
+                logger.debug("Using cached paper card for %s", paper_id)
+                return PaperCard(**cached)
+
         prompt = template.render(title=paper.title, abstract=paper.abstract)
         try:
             result = await llm.complete(
                 [{"role": "user", "content": prompt}],
                 response_model=PaperCardOutput,
             )
-            return PaperCard(
-                paper_id=paper.openalex_id or paper.s2_id or "",
+            card = PaperCard(
+                paper_id=paper_id,
                 short_label=resolve_short_label(paper.title, result.short_label),
                 problem=result.problem,
                 method_summary=result.method_summary,
@@ -135,11 +144,13 @@ async def paper_reader(state: InnoGraphState) -> dict:
                 datasets=result.datasets,
                 baselines=result.baselines,
             )
+            if paper_id:
+                await cache.set_paper_card(paper_id, card.model_dump())
+            return card
         except Exception as e:
             logger.warning("Failed to read paper %s: %s", paper.title, e)
             return None
 
-    # Process all papers fully concurrently (DeepSeek has no strict rate limit)
     results = await asyncio.gather(*[_read_one(p) for p in raw_papers])
     cards = [c for c in results if c is not None]
 

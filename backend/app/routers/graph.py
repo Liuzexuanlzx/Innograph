@@ -10,9 +10,9 @@ router = APIRouter()
 
 class BuildRequest(BaseModel):
     query: str
-    depth: int = Field(default=1, ge=1, le=3)
-    max_papers: int = Field(default=30, ge=5, le=100)
-    min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    depth: int = Field(default=2, ge=1, le=3)
+    max_papers: int = Field(default=50, ge=5, le=100)
+    min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
 class BuildResponse(BaseModel):

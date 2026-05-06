@@ -45,7 +45,7 @@ export function useGraphBuild() {
   const startBuild = useCallback(async (query: string) => {
     stopPolling();
     try {
-      const { task_id } = await buildGraph({ query });
+      const { task_id } = await buildGraph({ query, max_papers: 50, depth: 2 });
       setTask(task_id);
 
       pollingRef.current = setInterval(async () => {

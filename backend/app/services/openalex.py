@@ -1,13 +1,24 @@
+import asyncio
+
 import httpx
 
 from app.config import get_settings
 from app.models.paper import Paper
+from app.services.base_datasource import BaseDatasource
 
 BASE_URL = "https://api.openalex.org"
 AUTOCOMPLETE_URL = "https://api.openalex.org/autocomplete/works"
 
 
-class OpenAlexClient:
+class OpenAlexClient(BaseDatasource):
+    @property
+    def name(self) -> str:
+        return "OpenAlex"
+
+    @property
+    def priority(self) -> int:
+        return 1
+
     def __init__(self):
         settings = get_settings()
         self.email = settings.openalex_email
@@ -16,7 +27,7 @@ class OpenAlexClient:
     @property
     def client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=30.0)
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0))
         return self._client
 
     def _params(self, extra: dict | None = None) -> dict:
@@ -37,7 +48,6 @@ class OpenAlexClient:
         abstract = work.get("abstract_inverted_index")
         abstract_text = None
         if abstract:
-            # Reconstruct abstract from inverted index
             word_positions: list[tuple[int, str]] = []
             for word, positions in abstract.items():
                 for pos in positions:
@@ -63,6 +73,21 @@ class OpenAlexClient:
             ],
             url=work.get("doi") or work.get("id"),
         )
+
+    async def search_papers(self, query: str, limit: int = 10) -> list[Paper]:
+        return await self.search_works(query, per_page=limit)
+
+    async def get_paper_by_id(self, paper_id: str) -> Paper | None:
+        return await self.get_work(paper_id)
+
+    async def get_paper_by_doi(self, doi: str) -> Paper | None:
+        return await self.get_work(f"doi:{doi}")
+
+    async def get_citations(self, paper_id: str, limit: int = 50) -> list[Paper]:
+        return await self._get_citations_impl(paper_id, per_page=limit)
+
+    async def get_references(self, paper_id: str, limit: int = 50) -> list[Paper]:
+        return await self._get_references_impl(paper_id, per_page=limit)
 
     async def search_works(self, query: str, per_page: int = 10) -> list[Paper]:
         resp = await self.client.get(
@@ -97,7 +122,7 @@ class OpenAlexClient:
         resp.raise_for_status()
         return self._parse_work(resp.json())
 
-    async def get_references(self, work_id: str, per_page: int = 50) -> list[Paper]:
+    async def _get_references_impl(self, work_id: str, per_page: int = 50) -> list[Paper]:
         resp = await self.client.get(
             f"{BASE_URL}/works",
             params=self._params({
@@ -109,7 +134,7 @@ class OpenAlexClient:
         results = resp.json().get("results", [])
         return [self._parse_work(w) for w in results]
 
-    async def get_citations(self, work_id: str, per_page: int = 50) -> list[Paper]:
+    async def _get_citations_impl(self, work_id: str, per_page: int = 50) -> list[Paper]:
         resp = await self.client.get(
             f"{BASE_URL}/works",
             params=self._params({
@@ -127,14 +152,14 @@ class OpenAlexClient:
             params=self._params(),
         )
         work_resp.raise_for_status()
-        related_ids = work_resp.json().get("related_works", [])[:10]
-        papers = []
-        for rid in related_ids:
-            oa_id = rid.replace("https://openalex.org/", "")
-            paper = await self.get_work(oa_id)
-            if paper:
-                papers.append(paper)
-        return papers
+        related_ids = [
+            rid.replace("https://openalex.org/", "")
+            for rid in work_resp.json().get("related_works", [])[:10]
+        ]
+        if not related_ids:
+            return []
+        results = await asyncio.gather(*[self.get_work(oid) for oid in related_ids])
+        return [p for p in results if p is not None]
 
     async def close(self):
         if self._client and not self._client.is_closed:

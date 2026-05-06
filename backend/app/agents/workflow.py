@@ -33,18 +33,12 @@ def _with_progress(
 
 
 async def persist_graph(state: InnoGraphState) -> dict:
-    """Write all papers and verified edges to Neo4j."""
+    """Write all papers and verified edges to Neo4j using batch operations."""
     neo4j = Neo4jService()
     try:
-        for paper in state.get("raw_papers", []):
-            if paper.openalex_id:
-                await neo4j.upsert_paper(paper)
-
-        for card in state.get("paper_cards", []):
-            await neo4j.upsert_paper_card(card)
-
-        for edge in state.get("verified_edges", []):
-            await neo4j.upsert_innovation_edge(edge)
+        await neo4j.upsert_papers_batch(state.get("raw_papers", []))
+        await neo4j.upsert_paper_cards_batch(state.get("paper_cards", []))
+        await neo4j.upsert_innovation_edges_batch(state.get("verified_edges", []))
 
         logger.info("Persisted graph to Neo4j")
     finally:

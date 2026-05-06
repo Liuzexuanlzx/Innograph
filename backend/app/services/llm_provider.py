@@ -1,123 +1,165 @@
+import asyncio
 import json
 import logging
 import re
-import time
+from threading import Lock
 
 from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
 from pydantic import BaseModel
-from zhipuai import ZhipuAI
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+MAX_TOKENS_ESTIMATE = 6000
+MAX_RETRIES = 2
+BASE_DELAY = 0.5
+LLM_CONCURRENCY = 25
+
+_llm_semaphore = asyncio.Semaphore(LLM_CONCURRENCY)
+
+
+def _estimate_tokens(text: str) -> int:
+    return len(text) // 3
+
+
+def _truncate_input(content: str, max_tokens: int = MAX_TOKENS_ESTIMATE) -> str:
+    if _estimate_tokens(content) <= max_tokens:
+        return content
+    half = max_tokens * 3 // 2
+    return content[:half] + "\n[...input truncated...]\n" + content[-half:]
+
 
 def _extract_json(content: str) -> dict:
-    """Extract JSON from LLM response, handling markdown code blocks."""
     content = content.strip()
-    # Handle ```json ... ``` blocks
     if "```json" in content:
         content = content.split("```json")[1].split("```")[0].strip()
     elif "```" in content:
         content = content.split("```")[1].split("```")[0].strip()
-    # Try direct parse
+
     try:
         return json.loads(content)
     except json.JSONDecodeError:
-        # Fallback: extract first {...} block
-        match = re.search(r'\{.*\}', content, re.DOTALL)
-        if match:
+        pass
+
+    match = re.search(r'\{.*\}', content, re.DOTALL)
+    if match:
+        try:
             return json.loads(match.group())
-        raise ValueError(f"No valid JSON found in response: {content[:200]}")
+        except json.JSONDecodeError:
+            pass
+
+    json_objects = re.findall(r'\{(?:[^{}]|\{[^{}]*\})*\}', content)
+    for candidate in sorted(json_objects, key=len, reverse=True):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+
+    raise ValueError(f"No valid JSON found in response: {content[:300]}")
 
 
 class LLMProvider:
+    _instance = None
+    _lock = Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
     def __init__(self):
+        if self._initialized:
+            return
+        self._initialized = True
         settings = get_settings()
-        self._zhipu = None
+        self._settings = settings
         self._openai = None
-        self._anthropic = None
-        self._mode = None  # "zhipu" | "openai_compat" | "openai" | "anthropic"
+        self._build_client()
 
-        if settings.openai_api_base and "bigmodel.cn" in settings.openai_api_base:
-            # Zhipu GLM — use official zhipuai SDK
-            self._zhipu = ZhipuAI(api_key=settings.openai_api_key)
-            self._mode = "zhipu"
-            logger.info("LLM backend: Zhipu GLM (official SDK)")
-
-        elif settings.openai_api_key:
-            # OpenAI-compatible API (DeepSeek, etc.) — use ChatOpenAI but manual JSON parsing
-            is_deepseek = settings.openai_api_base and "deepseek" in settings.openai_api_base
-            model_name = "deepseek-chat" if is_deepseek else "gpt-4o"
-            kwargs = {
-                "model": model_name,
-                "api_key": settings.openai_api_key,
-                "temperature": 0.1,
-            }
-            if settings.openai_api_base:
-                kwargs["base_url"] = settings.openai_api_base
-            self._openai = ChatOpenAI(**kwargs)
-            # DeepSeek and other compat providers don't support response_format / tool calling
-            self._mode = "openai_compat" if settings.openai_api_base else "openai"
-            logger.info(f"LLM backend: {self._mode} with model {model_name}")
-
-        if settings.anthropic_api_key:
-            self._anthropic = ChatAnthropic(
-                model="claude-sonnet-4-20250514",
-                api_key=settings.anthropic_api_key,
-                temperature=0.1,
-            )
-            if self._mode is None:
-                self._mode = "anthropic"
-                logger.info("LLM backend: Anthropic Claude")
+    def _build_client(self):
+        model_name = "deepseek-v4-pro"
+        kwargs = {
+            "model": model_name,
+            "api_key": self._settings.openai_api_key,
+            "temperature": 0.1,
+        }
+        if self._settings.openai_api_base:
+            kwargs["base_url"] = self._settings.openai_api_base
+        else:
+            kwargs["base_url"] = "https://api.deepseek.com/v1"
+        self._openai = ChatOpenAI(**kwargs)
+        logger.info("LLM backend: DeepSeek with model %s", model_name)
 
     async def complete(
         self,
         messages: list[dict],
         response_model: type[BaseModel] | None = None,
     ) -> str | BaseModel:
-        """Complete a conversation. Returns parsed response_model or raw string."""
+        if not self._openai:
+            raise RuntimeError("No LLM API key configured. Set OPENAI_API_KEY.")
 
-        # ── Zhipu GLM (official SDK, synchronous) ─────────────────────────────
-        if self._mode == "zhipu" and self._zhipu:
-            time.sleep(1)  # rate-limit guard for free tier
-            response = self._zhipu.chat.completions.create(
-                model="glm-4.7-flash",
-                messages=[{"role": m["role"], "content": m["content"]} for m in messages],
-                temperature=0.1,
-            )
-            content = response.choices[0].message.content
-            if response_model:
-                data = _extract_json(content)
-                return response_model(**data)
-            return content
+        for msg in messages:
+            if isinstance(msg.get("content"), str):
+                msg["content"] = _truncate_input(msg["content"])
 
-        # ── OpenAI-compatible (DeepSeek, etc.) — manual JSON parsing ──────────
-        if self._mode == "openai_compat" and self._openai:
-            result = await self._openai.ainvoke(messages)
-            content = result.content
-            if response_model:
-                data = _extract_json(content)
-                return response_model(**data)
-            return content
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                async with _llm_semaphore:
+                    result = await self._openai.ainvoke(messages)
+                content = result.content
+                if response_model:
+                    data = _extract_json(content)
+                    return response_model(**data)
+                return content
+            except ValueError as e:
+                logger.warning(
+                    "LLM JSON parse failed (attempt %d/%d): %s",
+                    attempt + 1, MAX_RETRIES, e,
+                )
+                last_error = e
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(BASE_DELAY * (2 ** attempt))
+            except Exception as e:
+                logger.warning(
+                    "LLM call failed (attempt %d/%d): %s",
+                    attempt + 1, MAX_RETRIES, e,
+                )
+                last_error = e
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(BASE_DELAY * (2 ** attempt))
 
-        # ── Native OpenAI — use structured_output ─────────────────────────────
-        if self._mode == "openai" and self._openai:
-            if response_model:
-                structured = self._openai.with_structured_output(response_model)
-                return await structured.ainvoke(messages)
-            result = await self._openai.ainvoke(messages)
-            return result.content
+        raise RuntimeError(f"LLM call failed after {MAX_RETRIES} attempts: {last_error}")
 
-        # ── Anthropic ─────────────────────────────────────────────────────────
-        if self._anthropic:
-            if response_model:
-                structured = self._anthropic.with_structured_output(response_model)
-                return await structured.ainvoke(messages)
-            result = await self._anthropic.ainvoke(messages)
-            return result.content
+    async def complete_batch(
+        self,
+        tasks: list[dict],
+        response_model: type[BaseModel] | None = None,
+    ) -> list[str | BaseModel]:
+        """Batch complete multiple conversations concurrently."""
+        async def _process(task):
+            messages = task["messages"]
+            for msg in messages:
+                if isinstance(msg.get("content"), str):
+                    msg["content"] = _truncate_input(msg["content"])
 
-        raise RuntimeError(
-            "No LLM API key configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY."
-        )
+            for attempt in range(MAX_RETRIES):
+                try:
+                    async with _llm_semaphore:
+                        result = await self._openai.ainvoke(messages)
+                    content = result.content
+                    if response_model:
+                        data = _extract_json(content)
+                        return response_model(**data)
+                    return content
+                except Exception:
+                    if attempt < MAX_RETRIES - 1:
+                        await asyncio.sleep(BASE_DELAY * (2 ** attempt))
+            return None
+
+        results = await asyncio.gather(*[_process(task) for task in tasks])
+        return results

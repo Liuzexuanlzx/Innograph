@@ -21,7 +21,7 @@ class SemanticScholarClient:
             headers = {}
             if self.api_key:
                 headers["x-api-key"] = self.api_key
-            self._client = httpx.AsyncClient(timeout=30.0, headers=headers)
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0), headers=headers)
         return self._client
 
     def _parse_paper(self, data: dict) -> Paper:

@@ -22,7 +22,7 @@ export const useGraphStore = create<GraphState>((set) => ({
   selectedNode: null,
   selectedEdge: null,
   layoutMode: 'cose',
-  minConfidence: 0.5,
+  minConfidence: 0.7,
   setSnapshot: (snapshot) => set({ snapshot, selectedNode: null, selectedEdge: null }),
   selectNode: (paper) => set({ selectedNode: paper, selectedEdge: null }),
   selectEdge: (edge) => set({ selectedEdge: edge, selectedNode: null }),
