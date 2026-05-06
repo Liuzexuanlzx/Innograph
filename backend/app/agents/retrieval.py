@@ -61,8 +61,8 @@ async def retrieval(state: InnoGraphState) -> dict:
 
     try:
         # ── Phase 1: concurrently fetch OpenAlex + S2 paper match ─────────────
-        oa_refs_coro   = _fetch("OpenAlex references",    oa.get_references(seed_id, per_page=_SOURCE_LIMIT),   [])
-        oa_cites_coro  = _fetch("OpenAlex citations",     oa.get_citations(seed_id, per_page=_SOURCE_LIMIT),    [])
+        oa_refs_coro   = _fetch("OpenAlex references",    oa.get_references(seed_id, limit=_SOURCE_LIMIT),   [])
+        oa_cites_coro  = _fetch("OpenAlex citations",     oa.get_citations(seed_id, limit=_SOURCE_LIMIT),    [])
         oa_related_coro = _fetch("OpenAlex related works", oa.get_related_works(seed_id),                       [])
         s2_match_coro  = _fetch("Semantic Scholar match", s2.match_paper(seed_paper.title), None) if seed_paper else asyncio.sleep(0, result=None)
 
