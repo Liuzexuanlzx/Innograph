@@ -2,7 +2,10 @@ import asyncio
 import json
 import logging
 import re
+<<<<<<< HEAD
 from threading import Lock
+=======
+>>>>>>> faeb402eaab518858020bc1b6d4aef221a395b6b
 
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
@@ -99,6 +102,7 @@ class LLMProvider:
         messages: list[dict],
         response_model: type[BaseModel] | None = None,
     ) -> str | BaseModel:
+<<<<<<< HEAD
         if not self._openai:
             raise RuntimeError("No LLM API key configured. Set OPENAI_API_KEY.")
 
@@ -163,3 +167,18 @@ class LLMProvider:
 
         results = await asyncio.gather(*[_process(task) for task in tasks])
         return results
+=======
+        """Complete a conversation. Returns parsed response_model or raw string."""
+        if not self._openai:
+            raise RuntimeError(
+                "No LLM API key configured. Set OPENAI_API_KEY."
+            )
+
+        # Use DeepSeek V4
+        result = await self._openai.ainvoke(messages)
+        content = result.content
+        if response_model:
+            data = _extract_json(content)
+            return response_model(**data)
+        return content
+>>>>>>> faeb402eaab518858020bc1b6d4aef221a395b6b
