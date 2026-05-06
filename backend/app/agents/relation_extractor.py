@@ -34,6 +34,9 @@ async def relation_extractor(state: InnoGraphState) -> dict:
     Enforces temporal ordering: edges can only point from newer papers
     to older papers. This prevents nonsensical relationships like
     "2020 paper improves upon 2023 paper".
+
+    IMPORTANT: Only generates pairs between seed paper and related papers.
+    Does NOT generate all-pairs combinations to avoid O(n^2) LLM calls.
     """
     seed_id = state.get("seed_paper_id")
     paper_cards = state.get("paper_cards", [])
@@ -71,16 +74,8 @@ async def relation_extractor(state: InnoGraphState) -> dict:
             seen_pairs.add(pair)
             pairs.append(pair)
 
-    for i, id_a in enumerate(other_ids):
-        for id_b in other_ids[i + 1:]:
-            src, tgt = _get_ordered_pair(id_a, id_b)
-            pair = (src, tgt)
-            if pair not in seen_pairs:
-                seen_pairs.add(pair)
-                pairs.append(pair)
-
-    logger.info("Generating %d temporally-ordered pairs (reduced from %d bidirectional)",
-                 len(pairs), len(other_ids) * 2)
+    logger.info("Generating %d temporally-ordered pairs (seed -> related only, no all-pairs)",
+                 len(pairs))
 
     llm = LLMProvider()
     cache = CacheService()

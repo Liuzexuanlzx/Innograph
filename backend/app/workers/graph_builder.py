@@ -19,7 +19,7 @@ celery_app.conf.update(
 
 
 @celery_app.task(bind=True, name="innograph.build_graph")
-def build_innovation_graph(self, query: str, depth: int = 2, max_papers: int = 50, min_confidence: float = 0.7):
+def build_innovation_graph(self, query: str, depth: int = 2, max_papers: int = 30, min_confidence: float = 0.7):
     """Celery task that runs the LangGraph workflow."""
     from app.agents.workflow import compile_workflow
 
@@ -48,13 +48,12 @@ def build_innovation_graph(self, query: str, depth: int = 2, max_papers: int = 5
         "rejected_pairs": [],
         "summaries": {},
         "iteration": 0,
-        "max_iterations": 2,
+        "max_iterations": 0,
         "errors": [],
     }
 
     report_progress("Starting workflow...")
 
-    # Run the async workflow in a sync context
     loop = asyncio.new_event_loop()
     try:
         final_state = loop.run_until_complete(workflow.ainvoke(initial_state))
@@ -64,11 +63,9 @@ def build_innovation_graph(self, query: str, depth: int = 2, max_papers: int = 5
     finally:
         loop.close()
 
-    # Filter edges by min_confidence
     verified = final_state.get("verified_edges", [])
     filtered = [e for e in verified if e.confidence >= min_confidence]
 
-    # Build snapshot result
     papers = final_state.get("raw_papers", [])
     paper_cards = final_state.get("paper_cards", [])
     summaries = final_state.get("summaries", {})
