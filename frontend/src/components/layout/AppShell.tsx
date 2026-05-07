@@ -49,11 +49,6 @@ export function AppShell() {
     '--hud-offset': `${headerOffset}px`,
   } as CSSProperties;
 
-  const handleGraphError = (error: Error) => {
-    console.error('Graph rendering error:', error);
-    setRenderError(error.message || 'Failed to render graph');
-  };
-
   const resetError = () => {
     setRenderError(null);
   };
