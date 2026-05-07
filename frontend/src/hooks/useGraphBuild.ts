@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react';
 import { buildGraph, getTaskStatus, getTaskSnapshot } from '../api/graphApi';
 import { useTaskStore } from '../stores/taskStore';
 import { useGraphStore } from '../stores/graphStore';
+import type { TaskResult } from '../api/types';
 
 function getErrorMessage(error: unknown): string {
   if (typeof error === 'object' && error !== null) {
@@ -54,14 +55,14 @@ export function useGraphBuild() {
         }
         inFlightRef.current = true;
         try {
-          const status = await getTaskStatus(task_id);
-          updateStatus(status);
+          const result: TaskResult = await getTaskStatus(task_id);
+          updateStatus(result.status, result.progress, result.error);
 
-          if (status === 'SUCCESS') {
+          if (result.status === 'SUCCESS') {
             stopPolling();
             const snapshot = await getTaskSnapshot(task_id);
             setSnapshot(snapshot);
-          } else if (status === 'FAILURE') {
+          } else if (result.status === 'FAILED') {
             stopPolling();
           }
         } catch {
